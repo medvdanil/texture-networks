@@ -1,6 +1,8 @@
 ## Texture Networks in Tensorflow.
 
-Work is being done in python 3.5, though you will need to use 2.7 to run Tensorboard.
+The short-term goal of this project is to implement Texture Networks, as described in http://arxiv.org/abs/1603.03417. (For more background, see http://arxiv.org/abs/1508.06576) Longer term goals include exploring extensions and related architectures around the theme.
+
+Development is being done in python 3.5, though you will need to use 2.7 to run Tensorboard.
 
 ## Setup
 
