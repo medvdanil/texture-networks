@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from vgg_network import VGGNetwork, load_image
 
 
 def leaky_relu(input_layer, alpha):
@@ -19,17 +20,18 @@ def norm(name, input_layer, lsize=4):
     return tf.nn.local_response_normalization(input_layer, lsize, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name=name)
 
 
-def input_pyramid(name, M, k=5):
+def input_pyramid(name, M, batch_size, k=5):
     """
     Generates k inputs at different scales, with MxM being the largest.
     """
     with tf.get_default_graph().name_scope(name):
-        return_val = [tf.placeholder(tf.float32, [1, M//(2**x), M//(2**x), 3], name=str(x)) for x in range(k)][::-1]
+        return_val = [tf.placeholder(tf.float32, [batch_size, M//(2**x), M//(2**x), 3], name=str(x)) for x in range(k)]
+        return_val.reverse()
     return return_val
 
 
-def noise_pyramid(M, k=5):
-    return [np.random.rand(1, M//(2**x), M//(2**x), 3) for x in range(k)][::-1]
+def noise_pyramid(M, batch_size, k=5):
+    return [np.random.rand(batch_size, M//(2**x), M//(2**x), 3) for x in range(k)][::-1]
 
 
 def conv_block(name, input_layer, kernel_size, out_channels):
@@ -77,34 +79,56 @@ def join_block(name, lower_res_layer, higher_res_layer):
 class TextureNetwork(object):
     inputDimension = 224
     channelStepSize = 8
+    batchSize = 1
+    epochs = 5
 
     def __init__(self):
         self.graph = tf.Graph()
         with self.graph.as_default():
-            noise_inputs = input_pyramid("noise", self.inputDimension)
-            current_channels = 0
+            """
+            Construct the texture network graph structure
+            """
+            noise_inputs = input_pyramid("noise", self.inputDimension, self.batchSize)
+            current_channels = 8
             current_noise_aggregate = noise_inputs[0]
             for noise_frame in noise_inputs[1:]:
-                current_channels += self.channelStepSize
                 low_res_out = conv_chain("chain_lower_%d" % current_channels, current_noise_aggregate, current_channels)
                 high_res_out = conv_chain("chain_higher", noise_frame, self.channelStepSize)
+                current_channels += self.channelStepSize
                 current_noise_aggregate = join_block("join_%d" % (current_channels + self.channelStepSize), low_res_out, high_res_out)
             final_chain = conv_chain("output_chain", current_noise_aggregate, current_channels)
-            output = conv_block("output", final_chain, kernel_size=1, out_channels=current_channels)
+            output = conv_block("output", final_chain, kernel_size=1, out_channels=3)
 
+            """
+            Calculate style loss by computing gramians from both the output of the texture net above and from the
+            texture sample image.
+            """
+            texture_vgg = VGGNetwork("texture_vgg", output)
+            texture_sample_image = tf.placeholder("float", [1, 224, 224, 3])
+            image_vgg = VGGNetwork("image_vgg", texture_sample_image)
+
+            # The tiling here is necessary because we're operating on a batch of noise samples, but only a one texture
+            gramians = [tf.sub(texture_vgg.gramian_for_layer(x), tf.tile(image_vgg.gramian_for_layer(x), [self.batchSize, 1, 1])) for x in range(1, 6)]
+            loss = tf.add_n([tf.reduce_sum(tf.square(x)) for x in gramians])
+            train_step = tf.train.GradientDescentOptimizer(0.1).minimize(loss)
+
+            """
+            Train over epochs, printing loss at each one
+            """
+            # Define our target
+            texture_image = load_image("img/img.jpg").reshape((1, 224, 224, 3))
             with tf.Session() as sess:
                 init = tf.initialize_all_variables()
                 sess.run(init)
-                # Log the graph structure for inspection in Tensorboard
-                writer = tf.train.SummaryWriter("tensorboard-log", max_queue=10, flush_secs=1)
-                writer.add_graph(self.graph.as_graph_def())
-                writer.flush()
-                # Test running noise samples through the network
-                feed_dict = {}
-                noise = noise_pyramid(self.inputDimension)
-                for index, noise_frame in enumerate(noise_inputs):
-                    feed_dict[noise_frame] = noise[index]
-                print(sess.run(output, feed_dict=feed_dict))
+
+                for i in range(self.epochs):
+                    feed_dict = {}
+                    noise = noise_pyramid(self.inputDimension, self.batchSize)
+                    for index, noise_frame in enumerate(noise_inputs):
+                        feed_dict[noise_frame] = noise[index]
+                    feed_dict[texture_sample_image] = texture_image
+                    train_step.run(feed_dict=feed_dict)
+                    print("Loss after epoch \t %d: " % i, sess.run(loss, feed_dict=feed_dict))
 
 
 # TODO: Add argument parsing and command-line args
