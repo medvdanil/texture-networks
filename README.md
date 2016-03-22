@@ -8,4 +8,4 @@ Development is being done in python 3.5, though you will need to use 2.7 to run 
 
 You will need to get a copy of the VGG16 network, I recommend the torrent listed at https://github.com/ry/tensorflow-vgg16
 
-Set up a python 3.5 virtual environment, `pip install -r requirements.txt`. You should be good to run `python texture_network.py` and `python vgg_network.py` (after pointing the latter at your local vgg file).
+Set up a python 3.5 virtual environment, intall tensorflow and then `pip install -r requirements.txt`. (If that scares you, I think the only real reqs so far are tensorflow, scikit, and pillow. If you hit problems let me know.) You should then be good to run `python texture_network.py` and `python vgg_network.py` (after pointing the latter at your local vgg file, and adding an img.jpg to the img directory).
