@@ -1,23 +1,30 @@
 import numpy as np
+from PIL import Image
 import tensorflow as tf
 from vgg_network import VGGNetwork, load_image
 
 
 def leaky_relu(input_layer, alpha):
-    return tf.maximum(alpha * input_layer, input_layer)
+    return tf.maximum(tf.mul(input_layer, alpha), input_layer)
 
 
 def conv2d(name, input_layer, w, b):
     # TODO: Mirror pad? I'm not sure how important this is.
     conv_output = tf.nn.conv2d(input_layer, w, strides=[1, 1, 1, 1], padding='SAME')
-    conv_with_bias = tf.nn.bias_add(conv_output, b)
-    return tf.nn.relu(conv_with_bias, name=name)
+    return tf.nn.bias_add(conv_output, b)
 
 
-def norm(name, input_layer, lsize=4):
-    # TODO: Use batch normalization instead of local resoponse norm.
-    # This is important since it allows the different scales to talk to each other.
-    return tf.nn.local_response_normalization(input_layer, lsize, bias=1.0, alpha=0.001 / 9.0, beta=0.75, name=name)
+def norm(name, input_layer):
+    """
+    Batch-normalizes the layer as in http://arxiv.org/abs/1502.03167
+    This is important since it allows the different scales to talk to each other when they get joined.
+    """
+    mean, variance = tf.nn.moments(input_layer, [0, 1, 2])
+    variance_epsilon = 0.01  # TODO: Check what this value should be
+    inv = tf.rsqrt(variance + variance_epsilon)
+    scale = tf.Variable(tf.random_uniform([1]), name="scale")  # TODO: How should these initialize?
+    offset = tf.Variable(tf.random_uniform([1]), name="offset")
+    return tf.sub(tf.mul(tf.mul(scale, inv), tf.sub(input_layer, mean)), offset, name=name)
 
 
 def input_pyramid(name, M, batch_size, k=5):
@@ -44,10 +51,15 @@ def conv_block(name, input_layer, kernel_size, out_channels):
     """
     with tf.get_default_graph().name_scope(name):
         in_channels = input_layer.get_shape().as_list()[-1]
-        weights = tf.Variable(tf.random_normal([kernel_size, kernel_size, in_channels, out_channels]), name='weights')
-        biases = tf.Variable(tf.random_normal([out_channels]), name='biases')
+
+        # Xavier initialization, http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
+        # The application of this method here seems unorthodox since we're using ReLU, not sigmoid or tanh.
+        low = -np.sqrt(6.0/(in_channels + out_channels))
+        high = np.sqrt(6.0/(in_channels + out_channels))
+        weights = tf.Variable(tf.random_uniform([kernel_size, kernel_size, in_channels, out_channels], minval=low, maxval=high), name='weights')
+        biases = tf.Variable(tf.random_uniform([out_channels], minval=low, maxval=high), name='biases')
         conv = conv2d('conv', input_layer, weights, biases)
-        batch_norm = norm('norm', conv, lsize=4)
+        batch_norm = norm('norm', conv)
         relu = leaky_relu(batch_norm, .01)
         return relu
 
@@ -69,18 +81,17 @@ def join_block(name, lower_res_layer, higher_res_layer):
     A block that combines two resolutions by upsampling the lower, batchnorming both, and concatting.
     """
     with tf.get_default_graph().name_scope(name):
-        # TODO: Decide what kind of upsampling to use
-        upsampled = tf.image.resize_bilinear(lower_res_layer, higher_res_layer.get_shape().as_list()[1:3])
-        batch_norm_lower = norm('normLower', upsampled, lsize=4)
-        batch_norm_higher = norm('normHigher', higher_res_layer, lsize=4)
+        upsampled = tf.image.resize_nearest_neighbor(lower_res_layer, higher_res_layer.get_shape().as_list()[1:3])
+        batch_norm_lower = norm('normLower', upsampled)
+        batch_norm_higher = norm('normHigher', higher_res_layer)
     return tf.concat(3, [batch_norm_lower, batch_norm_higher])
 
 
 class TextureNetwork(object):
     inputDimension = 224
     channelStepSize = 8
-    batchSize = 1
-    epochs = 5
+    batchSize = 1  # 16 in the paper
+    epochs = 1000  # 2000 in the paper
 
     def __init__(self):
         self.graph = tf.Graph()
@@ -108,15 +119,19 @@ class TextureNetwork(object):
             image_vgg = VGGNetwork("image_vgg", texture_sample_image)
 
             # The tiling here is necessary because we're operating on a batch of noise samples, but only a one texture
-            gramians = [tf.sub(texture_vgg.gramian_for_layer(x), tf.tile(image_vgg.gramian_for_layer(x), [self.batchSize, 1, 1])) for x in range(1, 6)]
-            loss = tf.add_n([tf.reduce_sum(tf.square(x)) for x in gramians])
-            train_step = tf.train.GradientDescentOptimizer(0.1).minimize(loss)
+            gramian_diffs = [tf.sub(texture_vgg.gramian_for_layer(x), tf.tile(image_vgg.gramian_for_layer(x), [self.batchSize, 1, 1])) for x in range(1, 6)]
+            # texture_vgg.channels_for_layer(i) = N, g.get_shape().as_list()[1] * g.get_shape().as_list()[2] = M
+            scaled_diffs = [tf.mul(g, 1 / (texture_vgg.channels_for_layer(i) * g.get_shape().as_list()[1] * g.get_shape().as_list()[2])) for g, i in zip(gramian_diffs, range(1, 6))]
+            # 1 / len(scaled_diffs) = w_l
+            loss = tf.mul(tf.add_n([tf.reduce_sum(tf.square(x)) for x in scaled_diffs]), 1 / (len(scaled_diffs) * 4 * self.batchSize))
+            optimizer = tf.train.GradientDescentOptimizer(0.1)
+            train_step = optimizer.minimize(loss)
 
             """
             Train over epochs, printing loss at each one
             """
-            # Define our target
             texture_image = load_image("img/img.jpg").reshape((1, 224, 224, 3))
+            saver = tf.train.Saver()
             with tf.Session() as sess:
                 init = tf.initialize_all_variables()
                 sess.run(init)
@@ -128,7 +143,11 @@ class TextureNetwork(object):
                         feed_dict[noise_frame] = noise[index]
                     feed_dict[texture_sample_image] = texture_image
                     train_step.run(feed_dict=feed_dict)
-                    print("Loss after epoch \t %d: " % i, sess.run(loss, feed_dict=feed_dict))
+                    if i > 0 and i % 20 == 0:  # TODO: Make this interval an argument
+                        saver.save(sess, "models/snapshot-%d.ckpt" % i)
+                        network_out = sess.run([output], feed_dict=feed_dict)
+                        img = Image.fromarray(network_out[0][0, :, :, :], "RGB")
+                        img.save("img/iteration-%d.jpeg" % i)
 
 
 # TODO: Add argument parsing and command-line args

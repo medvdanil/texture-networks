@@ -4,6 +4,7 @@ Loads vgg16 from disk as a tensorflow model.
 """
 import skimage.io
 import skimage.transform
+from style_helpers import gramian
 import tensorflow as tf
 
 
@@ -37,22 +38,17 @@ class VGGNetwork(object):
         """
         print([op.name for op in tf.get_default_graph().get_operations()])
 
+    def channels_for_layer(self, layer):
+        activations = tf.get_default_graph().get_tensor_by_name("%s/conv%d_1/Relu:0" % (self.name, layer))
+        return activations.get_shape().as_list()[3]
+
     # TODO: Write a test asserting this function behaves as expected. Validating shapes would be nice.
     def gramian_for_layer(self, layer):
         """
         Returns a matrix of cross-correlations between the activations of convolutional channels in a given layer.
         """
-        activations = tf.get_default_graph().get_tensor_by_name("%s/conv%d_1/Conv2D:0" % (self.name, layer))
+        activations = tf.get_default_graph().get_tensor_by_name("%s/conv%d_1/Relu:0" % (self.name, layer))
 
         # Reshape from (batch, width, height, channels) to (batch, channels, width, height)
-        filter_activations = tf.transpose(activations, perm=[0, 3, 1, 2])
-        activations_shape = filter_activations.get_shape().as_list()
-
-        # Vectorize the width*height activations
-        vectorized_activations = tf.reshape(filter_activations,
-                                            [activations_shape[0], activations_shape[1], -1])
-        transposed_vectorized_activations = tf.transpose(vectorized_activations, perm=[0, 2, 1])
-
-        # Calculate a (batch, channels, channels) sized stack of gramians
-        mult = tf.batch_matmul(vectorized_activations, transposed_vectorized_activations)
-        return mult
+        shuffled_activations = tf.transpose(activations, perm=[0, 3, 1, 2])
+        return gramian(shuffled_activations)
