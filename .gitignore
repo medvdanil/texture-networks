@@ -6,3 +6,4 @@ models/
 tensorboard-log/
 *.pyc
 *.DS_STORE
+venv/
