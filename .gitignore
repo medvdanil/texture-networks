@@ -5,3 +5,4 @@ img/
 models/
 tensorboard-log/
 *.pyc
+*.DS_STORE

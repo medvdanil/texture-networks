@@ -14,7 +14,7 @@ def conv2d(name, input_layer, w, b):
     return tf.nn.bias_add(conv_output, b)
 
 
-def norm(name, input_layer):
+def spatial_batch_norm(input_layer, name='spatial_batch_norm'):
     """
     Batch-normalizes the layer as in http://arxiv.org/abs/1502.03167
     This is important since it allows the different scales to talk to each other when they get joined.
@@ -22,10 +22,11 @@ def norm(name, input_layer):
     mean, variance = tf.nn.moments(input_layer, [0, 1, 2])
     variance_epsilon = 0.01  # TODO: Check what this value should be
     inv = tf.rsqrt(variance + variance_epsilon)
-    scale = tf.Variable(tf.random_uniform([1]), name="scale")  # TODO: How should these initialize?
-    offset = tf.Variable(tf.random_uniform([1]), name="offset")
-    return tf.sub(tf.mul(tf.mul(scale, inv), tf.sub(input_layer, mean)), offset, name=name)
-
+    num_channels = input_layer.get_shape().as_list()[3] # TODO: Clean this up
+    scale = tf.Variable(tf.random_uniform([num_channels]), name='scale')  # TODO: How should these initialize?
+    offset = tf.Variable(tf.random_uniform([num_channels]), name='offset')
+    return_val = tf.sub(tf.mul(tf.mul(scale, inv), tf.sub(input_layer, mean)), offset, name=name)
+    return return_val
 
 def input_pyramid(name, M, batch_size, k=5):
     """
@@ -46,7 +47,7 @@ def conv_block(name, input_layer, kernel_size, out_channels):
     Per Ulyanov et el, this is a block consisting of
         - Mirror pad (TODO)
         - Number of maps from a convolutional layer equal to out_channels (multiples of 8)
-        - BatchNorm (TODO)
+        - Spatial BatchNorm
         - LeakyReLu
     """
     with tf.get_default_graph().name_scope(name):
@@ -59,7 +60,7 @@ def conv_block(name, input_layer, kernel_size, out_channels):
         weights = tf.Variable(tf.random_uniform([kernel_size, kernel_size, in_channels, out_channels], minval=low, maxval=high), name='weights')
         biases = tf.Variable(tf.random_uniform([out_channels], minval=low, maxval=high), name='biases')
         conv = conv2d('conv', input_layer, weights, biases)
-        batch_norm = norm('norm', conv)
+        batch_norm = spatial_batch_norm(conv)
         relu = leaky_relu(batch_norm, .01)
         return relu
 
@@ -82,8 +83,8 @@ def join_block(name, lower_res_layer, higher_res_layer):
     """
     with tf.get_default_graph().name_scope(name):
         upsampled = tf.image.resize_nearest_neighbor(lower_res_layer, higher_res_layer.get_shape().as_list()[1:3])
-        batch_norm_lower = norm('normLower', upsampled)
-        batch_norm_higher = norm('normHigher', higher_res_layer)
+        batch_norm_lower = spatial_batch_norm(upsampled, 'normLower')
+        batch_norm_higher = spatial_batch_norm(higher_res_layer, 'normHigher')
     return tf.concat(3, [batch_norm_lower, batch_norm_higher])
 
 
@@ -119,11 +120,13 @@ class TextureNetwork(object):
             image_vgg = VGGNetwork("image_vgg", texture_sample_image)
 
             # The tiling here is necessary because we're operating on a batch of noise samples, but only a one texture
-            gramian_diffs = [tf.sub(texture_vgg.gramian_for_layer(x), tf.tile(image_vgg.gramian_for_layer(x), [self.batchSize, 1, 1])) for x in range(1, 6)]
-            # texture_vgg.channels_for_layer(i) = N, g.get_shape().as_list()[1] * g.get_shape().as_list()[2] = M
-            scaled_diffs = [tf.mul(g, 1 / (texture_vgg.channels_for_layer(i) * g.get_shape().as_list()[1] * g.get_shape().as_list()[2])) for g, i in zip(gramian_diffs, range(1, 6))]
-            # 1 / len(scaled_diffs) = w_l
-            loss = tf.mul(tf.add_n([tf.reduce_sum(tf.square(x)) for x in scaled_diffs]), 1 / (len(scaled_diffs) * 4 * self.batchSize))
+            layers = [i for i in range(1, 6)]
+            gramian_diffs = [tf.sub(texture_vgg.gramian_for_layer(x), tf.tile(image_vgg.gramian_for_layer(x), [self.batchSize, 1, 1])) for x in layers]
+            Ns = [texture_vgg.channels_for_layer(i) for i in layers]
+            Ms = [g.get_shape().as_list()[1] * g.get_shape().as_list()[2] for g in gramian_diffs]
+            scaled_diffs = [tf.div(tf.square(g), 4*(N**2)*(M**2)) for g, N, M in zip(gramian_diffs, Ns, Ms)]
+            # 1 / len(layers) = w_l
+            loss = tf.div(tf.add_n([tf.reduce_sum(x) for x in scaled_diffs]), len(layers))
             optimizer = tf.train.GradientDescentOptimizer(0.1)
             train_step = optimizer.minimize(loss)
 

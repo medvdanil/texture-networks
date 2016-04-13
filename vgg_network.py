@@ -27,10 +27,10 @@ class VGGNetwork(object):
     def __init__(self, name, input):
         self.name = name
         with open("models/vgg16.tfmodel", mode='rb') as f:
-            fileContent = f.read()
+            file_content = f.read()
         graph_def = tf.GraphDef()
-        graph_def.ParseFromString(fileContent)
-        tf.import_graph_def(graph_def, input_map={ "images": input }, name=self.name)
+        graph_def.ParseFromString(file_content)
+        tf.import_graph_def(graph_def, input_map={"images": input}, name=self.name)
 
     def print_op_names(self):
         """
@@ -42,7 +42,6 @@ class VGGNetwork(object):
         activations = tf.get_default_graph().get_tensor_by_name("%s/conv%d_1/Relu:0" % (self.name, layer))
         return activations.get_shape().as_list()[3]
 
-    # TODO: Write a test asserting this function behaves as expected. Validating shapes would be nice.
     def gramian_for_layer(self, layer):
         """
         Returns a matrix of cross-correlations between the activations of convolutional channels in a given layer.
