@@ -22,11 +22,12 @@ def spatial_batch_norm(input_layer, name='spatial_batch_norm'):
     mean, variance = tf.nn.moments(input_layer, [0, 1, 2])
     variance_epsilon = 0.01  # TODO: Check what this value should be
     inv = tf.rsqrt(variance + variance_epsilon)
-    num_channels = input_layer.get_shape().as_list()[3] # TODO: Clean this up
+    num_channels = input_layer.get_shape().as_list()[3]  # TODO: Clean this up
     scale = tf.Variable(tf.random_uniform([num_channels]), name='scale')  # TODO: How should these initialize?
     offset = tf.Variable(tf.random_uniform([num_channels]), name='offset')
     return_val = tf.sub(tf.mul(tf.mul(scale, inv), tf.sub(input_layer, mean)), offset, name=name)
     return return_val
+
 
 def input_pyramid(name, M, batch_size, k=5):
     """
