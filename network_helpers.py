@@ -18,6 +18,12 @@ def load_image(path):
     resized_img = skimage.transform.resize(crop_img, (224, 224))
     return resized_img
 
+def conv2d_block_with_weights(input_layer, kernel_size, num_filters, stride=1):
+    # TODO: Consolidate this with conv_block from texture_network
+    conv = conv2d_with_weights(input_layer, kernel_size, num_filters, stride=stride)
+    bn = spatial_batch_norm(conv)
+    return tf.nn.relu(bn)
+
 def conv2d_with_weights(input_layer, kernel_size, num_filters, name="conv2d", stride=1):
     in_channels = input_layer.get_shape().as_list()[-1] # This assumes a certain ordering :/
     weights = tf.Variable(tf.random_uniform([kernel_size, kernel_size, in_channels, num_filters]), name=name+'-weights')

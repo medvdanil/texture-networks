@@ -6,7 +6,7 @@ Style Transfer and Super-Resolution", http://arxiv.org/abs/1603.08155
 import tensorflow as tf
 
 from coco_data import COCODataBatcher
-from network_helpers import conv2d_with_weights, spatial_batch_norm, load_image
+from network_helpers import conv2d_with_weights, conv2d_block_with_weights, spatial_batch_norm, load_image
 from style_helpers import total_variation
 from vgg_network import VGGNetwork
 
@@ -45,9 +45,9 @@ class PerceptualLossNetwork(object):
             halfInputDim = int(inputDim / 2)
             quarterInputDim = int(inputDim / 4)
             self.content_image = tf.placeholder(tf.float32, [batchSize, inputDim, inputDim, 3])
-            layer1 = conv2d_with_weights(self.content_image, 9, 32)
-            layer2 = conv2d_with_weights(layer1, 3, 64, stride=2)
-            layer3 = conv2d_with_weights(layer2, 3, 128, stride=2)
+            layer1 = conv2d_block_with_weights(self.content_image, 9, 32)
+            layer2 = conv2d_block_with_weights(layer1, 3, 64, stride=2)
+            layer3 = conv2d_block_with_weights(layer2, 3, 128, stride=2)
             layer4 = residual_block(layer3, 128)
             layer5 = residual_block(layer4, 128)
             layer6 = residual_block(layer5, 128)
@@ -55,7 +55,7 @@ class PerceptualLossNetwork(object):
             layer8 = residual_block(layer7, 128)
             layer9 = tf.nn.conv2d_transpose(layer8, tf.Variable(tf.random_uniform([quarterInputDim, quarterInputDim, 64, 128])), [batchSize, halfInputDim, halfInputDim, 64], [1, 2, 2, 1])
             layer10 = tf.nn.conv2d_transpose(layer9, tf.Variable(tf.random_uniform([halfInputDim, halfInputDim, 32, 64])), [batchSize, inputDim, inputDim, 32], [1, 2, 2, 1])
-            self.output = conv2d_with_weights(layer10, 3, 3)
+            self.output = conv2d_block_with_weights(layer10, 3, 3)
             self.style_image = tf.to_float(tf.reshape(tf.constant(load_image(style_image_path)), [1, 224, 224, 3]))
 
             vgg_input = tf.concat(0, [self.style_image, self.content_image, self.output])
