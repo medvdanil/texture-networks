@@ -1,31 +1,24 @@
 """
-Partially taken from https://github.com/ry/tensorflow-vgg16/blob/master/tf_forward.py
-Loads vgg16 from disk as a tensorflow model.
+Loads vgg16 from disk as a tensorflow model with batching to process style, content, and synthesized images
+simultaneously (while abstracting the accessors to compute style/content loss based on that representation).
 """
-import skimage.io
-import skimage.transform
 from style_helpers import gramian
 import tensorflow as tf
 
 
-def load_image(path):
-    # load image
-    img = skimage.io.imread(path) / 255.0
-    assert (0 <= img).all() and (img <= 1.0).all()
-    # we crop image from center
-    short_edge = min(img.shape[:2])
-    yy = int((img.shape[0] - short_edge) / 2)
-    xx = int((img.shape[1] - short_edge) / 2)
-    crop_img = img[yy : yy + short_edge, xx : xx + short_edge]
-    # resize to 224, 224
-    resized_img = skimage.transform.resize(crop_img, (224, 224))
-    return resized_img
-
-
 class VGGNetwork(object):
 
-    def __init__(self, name, input):
+    def __init__(self, name, input, i, j, k):
+        """
+        :param input: A 4D-tensor of shape [batchSize, 224, 224, 3]
+                [0:i, :, :, :] holds i style images,
+                [i:i+j, :, :, :] holds j content images,
+                [i+j:i+j+k, :, :, :] holds k synthesized images
+        """
         self.name = name
+        self.num_style = i
+        self.num_content = j
+        self.num_synthesized = k
         with open("models/vgg16.tfmodel", mode='rb') as f:
             file_content = f.read()
         graph_def = tf.GraphDef()
@@ -46,8 +39,49 @@ class VGGNetwork(object):
         """
         Returns a matrix of cross-correlations between the activations of convolutional channels in a given layer.
         """
-        activations = tf.get_default_graph().get_tensor_by_name("%s/conv%d_1/Relu:0" % (self.name, layer))
+        activations = self.activations_for_layer(layer)
 
         # Reshape from (batch, width, height, channels) to (batch, channels, width, height)
         shuffled_activations = tf.transpose(activations, perm=[0, 3, 1, 2])
         return gramian(shuffled_activations)
+
+    def activations_for_layer(self, layer):
+        """
+        :param layer: A tuple that indexes into the convolutional blocks of the VGG Net
+        """
+        return tf.get_default_graph().get_tensor_by_name("{0}/conv{1}_{2}/Relu:0".format(self.name, layer[0], layer[1]))
+
+    def style_loss(self, layers):
+        activations = [self.activations_for_layer(i) for i in layers]
+        gramians = [self.gramian_for_layer(x) for x in layers]
+        # Slices are for style and synth image
+        gramian_diffs = [
+            tf.sub(
+                tf.tile(tf.slice(g, [0, 0, 0], [self.num_style, -1, -1]), [self.num_synthesized - self.num_style + 1, 1, 1]),
+                tf.slice(g, [self.num_style + self.num_content, 0, 0], [self.num_synthesized, -1, -1]))
+            for g in gramians]
+        Ns = [g.get_shape().as_list()[2] for g in gramians]
+        Ms = [a.get_shape().as_list()[1] * a.get_shape().as_list()[2] for a in activations]
+        scaled_diffs = [tf.square(g) for g in gramian_diffs]
+        style_loss = tf.div(
+            tf.add_n([tf.div(tf.reduce_sum(x), 4 * (N ** 2) * (M ** 2)) for x, N, M in zip(scaled_diffs, Ns, Ms)]),
+            len(layers))
+        return style_loss
+
+    def content_loss(self, layers):
+        activations = [self.activations_for_layer(i) for i in layers]
+        activation_diffs = [
+            tf.sub(
+                tf.tile(tf.slice(a, [self.num_style, 0, 0, 0], [self.num_content, -1, -1, -1]), [self.num_synthesized - self.num_content + 1, 1, 1, 1]),
+                tf.slice(a, [self.num_style + self.num_content, 0, 0, 0], [self.num_content, -1, -1, -1]))
+            for a in activations]
+        # This normalizer is in JCJohnson's paper, but not Gatys' I think?
+        Ns = [a.get_shape().as_list()[1] * a.get_shape().as_list()[2] * a.get_shape().as_list()[3] for a in activations]
+        content_loss = tf.div(tf.add_n([tf.div(tf.reduce_sum(tf.square(a)), n) for a, n in zip(activation_diffs, Ns)]), 2.0)
+        return content_loss
+
+    def combined_loss(self, style_layers, content_layers, alpha=0.001, beta=1.0):
+        style_loss = self.style_loss(style_layers)
+        content_loss = self.content_loss(content_layers)
+        combined_loss = tf.add(tf.mul(beta, style_loss), tf.mul(alpha, content_loss))
+        return combined_loss
