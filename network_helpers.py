@@ -1,3 +1,4 @@
+import numpy as np
 import skimage.io
 import skimage.transform
 import tensorflow as tf
@@ -26,8 +27,14 @@ def conv2d_block_with_weights(input_layer, kernel_size, num_filters, stride=1):
 
 def conv2d_with_weights(input_layer, kernel_size, num_filters, name="conv2d", stride=1):
     in_channels = input_layer.get_shape().as_list()[-1] # This assumes a certain ordering :/
-    weights = tf.Variable(tf.random_uniform([kernel_size, kernel_size, in_channels, num_filters]), name=name+'-weights')
-    biases = tf.Variable(tf.random_uniform([num_filters]), name=name+'-biases')
+    # Xavier initialization, http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
+    # TODO: Maybe make weight initialization method an option.
+    low = -np.sqrt(6.0 / (in_channels + num_filters))
+    high = np.sqrt(6.0 / (in_channels + num_filters))
+    weights = tf.Variable(
+        tf.random_uniform([kernel_size, kernel_size, in_channels, num_filters], minval=low, maxval=high),
+        name=name+'-weights')
+    biases = tf.Variable(tf.random_uniform([num_filters], minval=low, maxval=high), name=name+'-biases')
     conv_output = tf.nn.conv2d(input_layer, weights, strides=[1, stride, stride, 1], padding='SAME')
     return tf.nn.bias_add(conv_output, biases)
 
