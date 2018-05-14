@@ -58,7 +58,7 @@ class PerceptualLossNetwork(object):
             self.output = conv2d_block_with_weights(layer10, 3, 3)
             self.style_image = tf.to_float(tf.reshape(tf.constant(load_image(style_image_path)), [1, 224, 224, 3]))
 
-            vgg_input = tf.concat(0, [self.style_image, self.content_image, self.output])
+            vgg_input = tf.concat([self.style_image, self.content_image, self.output], 0)
             # Feed output to VGG, compute loss against input image and style image.
             vgg_net = VGGNetwork('vgg', vgg_input, 1, self.batchSize, self.batchSize)
             self.style_loss = vgg_net.style_loss([(1, 2), (2, 2), (3, 3), (4, 3)])

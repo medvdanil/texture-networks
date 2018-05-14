@@ -19,7 +19,7 @@ class VGGNetwork(object):
         self.num_style = i
         self.num_content = j
         self.num_synthesized = k
-        with open("models/vgg16.tfmodel", mode='rb') as f:
+        with open("/files/data/vgg16-20160129.tfmodel", mode='rb') as f:
             file_content = f.read()
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(file_content)
@@ -56,7 +56,7 @@ class VGGNetwork(object):
         gramians = [self.gramian_for_layer(x) for x in layers]
         # Slices are for style and synth image
         gramian_diffs = [
-            tf.sub(
+            tf.subtract(
                 tf.tile(tf.slice(g, [0, 0, 0], [self.num_style, -1, -1]), [self.num_synthesized - self.num_style + 1, 1, 1]),
                 tf.slice(g, [self.num_style + self.num_content, 0, 0], [self.num_synthesized, -1, -1]))
             for g in gramians]
@@ -71,7 +71,7 @@ class VGGNetwork(object):
     def content_loss(self, layers):
         activations = [self.activations_for_layer(i) for i in layers]
         activation_diffs = [
-            tf.sub(
+            tf.subtract(
                 tf.tile(tf.slice(a, [self.num_style, 0, 0, 0], [self.num_content, -1, -1, -1]), [self.num_synthesized - self.num_content + 1, 1, 1, 1]),
                 tf.slice(a, [self.num_style + self.num_content, 0, 0, 0], [self.num_content, -1, -1, -1]))
             for a in activations]
