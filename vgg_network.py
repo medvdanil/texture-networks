@@ -67,21 +67,3 @@ class VGGNetwork(object):
             tf.add_n([tf.div(tf.reduce_sum(x), 4 * (N ** 2) * (M ** 2)) for x, N, M in zip(scaled_diffs, Ns, Ms)]),
             len(layers))
         return style_loss
-
-    def content_loss(self, layers):
-        activations = [self.activations_for_layer(i) for i in layers]
-        activation_diffs = [
-            tf.subtract(
-                tf.tile(tf.slice(a, [self.num_style, 0, 0, 0], [self.num_content, -1, -1, -1]), [self.num_synthesized - self.num_content + 1, 1, 1, 1]),
-                tf.slice(a, [self.num_style + self.num_content, 0, 0, 0], [self.num_content, -1, -1, -1]))
-            for a in activations]
-        # This normalizer is in JCJohnson's paper, but not Gatys' I think?
-        Ns = [a.get_shape().as_list()[1] * a.get_shape().as_list()[2] * a.get_shape().as_list()[3] for a in activations]
-        content_loss = tf.div(tf.add_n([tf.div(tf.reduce_sum(tf.square(a)), n) for a, n in zip(activation_diffs, Ns)]), 2.0)
-        return content_loss
-
-    def combined_loss(self, style_layers, content_layers, alpha=0.001, beta=1.0):
-        style_loss = self.style_loss(style_layers)
-        content_loss = self.content_loss(content_layers)
-        combined_loss = tf.add(tf.mul(beta, style_loss), tf.mul(alpha, content_loss))
-        return combined_loss

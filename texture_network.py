@@ -3,7 +3,7 @@ import numpy as np
 import skimage.io
 import tensorflow as tf
 
-from network_helpers import conv2d, spatial_batch_norm, load_image
+from network_helpers import conv2d, spatial_batch_norm, load_image, images_shape
 from vgg_network import VGGNetwork
 
 def leaky_relu(input_layer, alpha):
@@ -73,10 +73,9 @@ def join_block(name, lower_res_layer, higher_res_layer):
 
 
 class TextureNetwork(object):
-    inputDimension = 224
     channelStepSize = 8
     batchSize = 1  # 16 in the paper
-    epochs = 3510  # 2000 in the paper
+    epochs = 100 #3510  # 2000 in the paper
 
     def __init__(self, style_img_path):
         self.graph = tf.Graph()
@@ -84,7 +83,7 @@ class TextureNetwork(object):
             """
             Construct the texture network graph structure
             """
-            self.noise_inputs = input_pyramid("noise", self.inputDimension, self.batchSize)
+            self.noise_inputs = input_pyramid("noise", images_shape[0], self.batchSize)
             current_channels = 8
             current_noise_aggregate = self.noise_inputs[0]
             for noise_frame in self.noise_inputs[1:]:
@@ -99,8 +98,7 @@ class TextureNetwork(object):
             Calculate style loss by computing gramians from both the output of the texture net above and from the
             texture sample image.
             """
-            self.texture_image = tf.to_float(tf.constant(load_image(style_img_path).reshape((1, 224, 224, 3))))
-            #content_images = tf.placeholder("float", [self.batchSize, 224, 224, 3])
+            self.texture_image = tf.to_float(tf.constant(load_image(style_img_path).reshape((1, images_shape[0], images_shape[1], 3))))
             image_vgg = VGGNetwork("image_vgg", tf.concat([self.texture_image, self.output, self.output], 0), 1, self.batchSize, self.batchSize)
 
             self.loss = image_vgg.style_loss([(i, 1) for i in range(1, 6)])
@@ -121,20 +119,22 @@ class TextureNetwork(object):
                 else:
                     saver.restore(sess, "models/snapshot-%d.ckpt" % it0)
                     print("model restored:", "models/snapshot-%d.ckpt" % it0)
+                train_writer = tf.summary.FileWriter('logs', sess.graph)
+                print("Start training")
                 for i in range(it0, self.epochs):
                     feed_dict = {}
-                    noise = noise_pyramid(self.inputDimension, self.batchSize)
+                    noise = noise_pyramid(images_shape[0], self.batchSize)
                     for index, noise_frame in enumerate(self.noise_inputs):
                         feed_dict[noise_frame] = noise[index]
                     train_step.run(feed_dict=feed_dict)
                     print("loss", i, sess.run(self.loss, feed_dict=feed_dict))
                     if i > 0 and i % 50 == 0:  # TODO: Make this interval an argument
                         saver.save(sess, "models/snapshot-%d.ckpt" % i)
-                        network_out = sess.run(self.output, feed_dict=feed_dict).reshape((224, 224, 3))
+                        network_out = sess.run(self.output, feed_dict=feed_dict).reshape(images_shape + (3,))
                         img_out = np.clip(np.array(network_out) * 255.0, 0, 255).astype('uint8')
                         skimage.io.imsave("img/aa-iteration-%d.jpeg" % i, img_out)
 
-
-it0 = 0 if len(sys.argv) < 2 else int(sys.argv[1])
-t = TextureNetwork('img/style.jpg')
-t.run_train(it0=it0)
+if __name__ == '__main__':
+    it0 = 0 if len(sys.argv) < 2 else int(sys.argv[1])
+    t = TextureNetwork('img/style.jpg')
+    t.run_train(it0=it0)

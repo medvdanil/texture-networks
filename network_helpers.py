@@ -3,6 +3,8 @@ import skimage.io
 import skimage.transform
 import tensorflow as tf
 
+images_shape = 448, 448
+
 def load_image(path):
     """
     Taken from https://github.com/ry/tensorflow-vgg16/blob/master/tf_forward.py
@@ -15,8 +17,8 @@ def load_image(path):
     yy = int((img.shape[0] - short_edge) / 2)
     xx = int((img.shape[1] - short_edge) / 2)
     crop_img = img[yy : yy + short_edge, xx : xx + short_edge]
-    # resize to 224, 224
-    resized_img = skimage.transform.resize(crop_img, (224, 224))
+    # resize to images_shape
+    resized_img = skimage.transform.resize(crop_img, images_shape)
     return resized_img
 
 def conv2d_block_with_weights(input_layer, kernel_size, num_filters, stride=1):
