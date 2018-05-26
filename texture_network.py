@@ -129,7 +129,7 @@ class TextureNetwork(object):
                     train_step.run(feed_dict=feed_dict)
                     print("loss", i, sess.run(self.loss, feed_dict=feed_dict))
                     if i > 0 and i % 50 == 0:  # TODO: Make this interval an argument
-                        saver.save(sess, "models/snapshot-%d.ckpt" % i)
+                        #saver.save(sess, "models/snapshot-%d.ckpt" % i)
                         network_out = sess.run(self.output, feed_dict=feed_dict).reshape(images_shape + (3,))
                         img_out = np.clip(np.array(network_out) * 255.0, 0, 255).astype('uint8')
                         skimage.io.imsave("img/aa-iteration-%d.jpeg" % i, img_out)

@@ -34,8 +34,8 @@ def conv2d(input_layer, w, b, stride=1):
     print("input_layer", input_layer.get_shape().as_list())
     tile_padding = input_layer
     for axis in 1, 2:
-        b1, b2 = slice_border(tile_padding, axis, w.get_shape().as_list()[axis - 1] // 2)
-        tile_padding = tf.concat([b1, tile_padding, b2], axis)
+        b_left, b_right = slice_border(tile_padding, axis, w.get_shape().as_list()[axis - 1] // 2)
+        tile_padding = tf.concat([b_right, tile_padding, b_left], axis)
         print("tile_padding%d" % axis, tile_padding.get_shape().as_list())
     conv_output = tf.nn.conv2d(tile_padding, w, strides=[1, stride, stride, 1], padding='SAME')
     slice_beg = [0] + w.get_shape().as_list()[:2] + [0]
