@@ -75,7 +75,7 @@ def join_block(name, lower_res_layer, higher_res_layer):
 class TextureNetwork(object):
     channelStepSize = 8
     batchSize = 1  # 16 in the paper
-    epochs = 100 #3510  # 2000 in the paper
+    epochs = 5000 #3510  # 2000 in the paper
 
     def __init__(self, style_img_path):
         self.graph = tf.Graph()

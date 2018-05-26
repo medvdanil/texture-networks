@@ -19,7 +19,7 @@ class VGGNetwork(object):
         self.num_style = i
         self.num_content = j
         self.num_synthesized = k
-        with open("/files/data/vgg16-20160129.tfmodel", mode='rb') as f:
+        with open("data/vgg16-20160129.tfmodel", mode='rb') as f:
             file_content = f.read()
         graph_def = tf.GraphDef()
         graph_def.ParseFromString(file_content)
