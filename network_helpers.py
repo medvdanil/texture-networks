@@ -21,29 +21,28 @@ def load_image(path):
     resized_img = skimage.transform.resize(crop_img, images_shape)
     return resized_img
 
-def conv2d_block_with_weights(input_layer, kernel_size, num_filters, stride=1):
-    # TODO: Consolidate this with conv_block from texture_network
-    conv = conv2d_with_weights(input_layer, kernel_size, num_filters, stride=stride)
-    bn = spatial_batch_norm(conv)
-    return tf.nn.relu(bn)
 
-def conv2d_with_weights(input_layer, kernel_size, num_filters, name="conv2d", stride=1):
-    in_channels = input_layer.get_shape().as_list()[-1] # This assumes a certain ordering :/
-    # Xavier initialization, http://jmlr.org/proceedings/papers/v9/glorot10a/glorot10a.pdf
-    # TODO: Maybe make weight initialization method an option.
-    low = -np.sqrt(6.0 / (in_channels + num_filters))
-    high = np.sqrt(6.0 / (in_channels + num_filters))
-    weights = tf.Variable(
-        tf.random_uniform([kernel_size, kernel_size, in_channels, num_filters], minval=low, maxval=high),
-        name=name+'-weights')
-    biases = tf.Variable(tf.random_uniform([num_filters], minval=low, maxval=high), name=name+'-biases')
-    conv_output = tf.nn.conv2d(input_layer, weights, strides=[1, stride, stride, 1], padding='SAME')
-    return tf.nn.bias_add(conv_output, biases)
-
+def slice_border(t, axis, pad):
+    sz = [-1, -1, -1, -1]
+    sz[axis] = pad
+    begin2 = [0, 0, 0, 0]
+    begin2[axis] = t.get_shape().as_list()[axis] - pad
+    return tf.slice(t, [0, 0, 0, 0], sz), tf.slice(t, begin2, sz)
 
 def conv2d(input_layer, w, b, stride=1):
-    conv_output = tf.nn.conv2d(input_layer, w, strides=[1, stride, stride, 1], padding='SAME')
-    return tf.nn.bias_add(conv_output, b)
+    print("w", w.get_shape().as_list())
+    print("input_layer", input_layer.get_shape().as_list())
+    tile_padding = input_layer
+    for axis in 1, 2:
+        b1, b2 = slice_border(tile_padding, axis, w.get_shape().as_list()[axis - 1] // 2)
+        tile_padding = tf.concat([b1, tile_padding, b2], axis)
+        print("tile_padding%d" % axis, tile_padding.get_shape().as_list())
+    conv_output = tf.nn.conv2d(tile_padding, w, strides=[1, stride, stride, 1], padding='SAME')
+    slice_beg = [0] + w.get_shape().as_list()[:2] + [0]
+    slice_beg[1] //= 2; slice_beg[2] //= 2;
+    slice_shp = [-1] + input_layer.get_shape().as_list()[1:3] + [-1]
+    conv_crop = tf.slice(conv_output, slice_beg, slice_shp)
+    return tf.nn.bias_add(conv_crop, b)
 
 
 def spatial_batch_norm(input_layer, name='spatial_batch_norm'):
