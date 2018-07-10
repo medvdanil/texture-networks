@@ -2,6 +2,7 @@ import sys
 import numpy as np
 import skimage.io
 import tensorflow as tf
+from os import path
 
 from network_helpers import conv2d, spatial_batch_norm, load_image, images_shape
 from vgg_network import VGGNetwork
@@ -75,10 +76,11 @@ def join_block(name, lower_res_layer, higher_res_layer):
 class TextureNetwork(object):
     channelStepSize = 8
     batchSize = 1  # 16 in the paper
-    epochs = 5000 #3510  # 2000 in the paper
+    epochs = 15000 #3510  # 2000 in the paper
 
     def __init__(self, style_img_path):
         self.graph = tf.Graph()
+        self.folder = path.split(style_img_path)[0]
         with self.graph.as_default():
             """
             Construct the texture network graph structure
@@ -132,9 +134,10 @@ class TextureNetwork(object):
                         #saver.save(sess, "models/snapshot-%d.ckpt" % i)
                         network_out = sess.run(self.output, feed_dict=feed_dict).reshape(images_shape + (3,))
                         img_out = np.clip(np.array(network_out) * 255.0, 0, 255).astype('uint8')
-                        skimage.io.imsave("img/aa-iteration-%d.jpeg" % i, img_out)
+                        skimage.io.imsave(path.join(self.folder, "aa-iteration-%d.jpeg" % i), img_out)
 
 if __name__ == '__main__':
-    it0 = 0 if len(sys.argv) < 2 else int(sys.argv[1])
-    t = TextureNetwork('img/style.jpg')
+    style_file_path = sys.argv[1]
+    it0 = 0 if len(sys.argv) < 3 else int(sys.argv[2])
+    t = TextureNetwork(style_file_path)
     t.run_train(it0=it0)
